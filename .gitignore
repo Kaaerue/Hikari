@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio
+*.iml
+.idea/
+.studio/
+
+# Local configuration
+local.properties
+
+# Native build
+.externalNativeBuild/
+.cxx/
+
+# OS files
+.DS_Store
+
+# Captures
+captures/
+MainActivity-backup.kt
