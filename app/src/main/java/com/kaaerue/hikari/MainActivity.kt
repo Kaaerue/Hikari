@@ -1,6 +1,8 @@
 
 package com.kaaerue.hikari
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.CheckCircle
@@ -1397,7 +1399,62 @@ fun SettingsScreen(
     personalGreeting: String,
     onProfileNameChange: (String) -> Unit,
     onGreetingChange: (String) -> Unit
-) {
+) {     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var backupJson by remember { mutableStateOf("") }
+    var pendingRestoreJson by remember { mutableStateOf("") }
+    var showRestoreDialog by remember { mutableStateOf(false) }
+    var backupMessage by remember { mutableStateOf("") }
+
+    var lastBackup by remember {
+        mutableLongStateOf(
+            context.getSharedPreferences("hikari_settings", 0)
+                .getLong("last_backup", 0L)
+        )
+    } 
+	    val createBackupLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            if (uri != null) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use {
+                        it.write(backupJson.toByteArray(Charsets.UTF_8))
+                    }
+
+                    lastBackup = System.currentTimeMillis()
+
+                    context.getSharedPreferences("hikari_settings", 0)
+                        .edit()
+                        .putLong("last_backup", lastBackup)
+                        .apply()
+
+                    backupMessage = "Backup berhasil disimpan!"
+                } catch (e: Exception) {
+                    backupMessage = "Backup gagal: ${e.message}"
+                }
+            }
+        }
+
+    val restoreBackupLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                try {
+                    pendingRestoreJson =
+                        context.contentResolver.openInputStream(uri)
+                            ?.bufferedReader()
+                            ?.use { it.readText() }
+                            ?: ""
+
+                    showRestoreDialog = pendingRestoreJson.isNotBlank()
+                } catch (e: Exception) {
+                    backupMessage = "Gagal membaca file: ${e.message}"
+                }
+            }
+        }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1516,7 +1573,76 @@ Spacer(Modifier.height(24.dp))
 }
 
         Spacer(Modifier.height(24.dp))
+	
+	        Text(
+            "Data & Backup",
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold
+        )
 
+        Spacer(Modifier.height(12.dp))
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Backup & Restore", fontWeight = FontWeight.Bold)
+
+                Text(
+                    if (lastBackup == 0L) {
+                        "No backup yet"
+                    } else {
+                        "Last backup: ${
+                            SimpleDateFormat(
+                                "dd MMM yyyy, HH:mm",
+                                Locale.getDefault()
+                            ).format(Date(lastBackup))
+                        }"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                backupJson = BackupStorage.createBackup(context)
+                                createBackupLauncher.launch(
+                                    "Hikari_Backup_${System.currentTimeMillis()}.json"
+                                )
+                            } catch (e: Exception) {
+                                backupMessage = "Backup gagal: ${e.message}"
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Create Backup")
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        restoreBackupLauncher.launch(
+                            arrayOf("application/json", "text/json")
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Restore Backup")
+                }
+
+                if (backupMessage.isNotBlank()) {
+                    Text(
+                        backupMessage,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+	
         Text("Application", fontSize = 19.sp, fontWeight = FontWeight.Bold)
 
         Spacer(Modifier.height(12.dp))
@@ -1530,5 +1656,55 @@ Spacer(Modifier.height(24.dp))
                 Text("Made with Kotlin and Jetpack Compose.")
             }
         }
+
+	    if (showRestoreDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showRestoreDialog = false
+                pendingRestoreJson = ""
+            },
+            title = {
+                Text("Restore Backup?")
+            },
+            text = {
+                Text(
+                    "Data Habit, Money, dan Notes saat ini akan diganti dengan data dari file backup. Pastikan kamu sudah memiliki backup data sekarang."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                BackupStorage.restoreBackup(
+                                    context,
+                                    pendingRestoreJson
+                                )
+                                backupMessage = "Restore berhasil!"
+                            } catch (e: Exception) {
+                                backupMessage = "Restore gagal: ${e.message}"
+                            }
+
+                            showRestoreDialog = false
+                            pendingRestoreJson = ""
+                        }
+                    }
+                ) {
+                    Text("Restore")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showRestoreDialog = false
+                        pendingRestoreJson = ""
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     }
 }
